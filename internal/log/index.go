@@ -27,13 +27,18 @@ func newIndex(f *os.File, c Config) (*index, error) {
 	if err != nil {
 		return nil, err
 	}
+	// 現在のサイズ
 	idx.size = uint64(fi.Size())
+	// maxにfileサイズを切り詰める（大きい場合余分に、小さい場合切り捨てる）
 	if err = os.Truncate(f.Name(), int64(c.Segment.MaxIndexBytes)); err != nil {
 		return nil, err
 	}
+	// fileとメモリを全て対応付ける
 	if idx.mmap, err = gommap.Map(
 		idx.file.Fd(),
+		// 読込書込み許可
 		gommap.PROT_READ|gommap.PROT_WRITE,
+		// 他processからのアクセス許可
 		gommap.MAP_SHARED,
 	); err != nil {
 		return nil, err
@@ -59,10 +64,12 @@ func (i *index) Read(in int64) (out uint32, pos uint64, err error) {
 		return 0, 0, io.EOF
 	}
 	if in == -1 {
+		// 最後のデータ
 		out = uint32((i.size / entwidth) - 1)
 	} else {
 		out = uint32(in)
 	}
+	// 対象のメモリ開始位置
 	pos = uint64(out) * entwidth
 	if i.size < pos+entwidth {
 		return 0, 0, io.EOF
@@ -76,12 +83,16 @@ func (i *index) Write(off uint32, pos uint64) error {
 	if i.isMaxed() {
 		return io.EOF
 	}
+	// 32bitのoffを末尾に追加
 	enc.PutUint32(i.mmap[i.size:i.size+offWidth], off)
+	// 続いて64bitのposを追加
 	enc.PutUint64(i.mmap[i.size+offWidth:i.size+entwidth], pos)
+	// サイズ更新
 	i.size += uint64(entwidth)
 	return nil
 }
 
+// 最大サイズに達しているか（次に32bi+64bit追加した場合）
 func (i *index) isMaxed() bool {
 	return uint64(len(i.mmap)) < i.size+entwidth
 }
